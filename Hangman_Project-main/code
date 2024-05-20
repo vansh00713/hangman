@@ -1,0 +1,187 @@
+import pygame
+import random
+import openai
+
+pygame.init()
+winHeight = 480
+winWidth = 700
+win = pygame.display.set_mode((winWidth, winHeight))
+
+# Colors
+LIGHT_BLUE = (173, 216, 230)
+DARK_BLUE = (0, 102, 204)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+
+# Fonts
+btn_font = pygame.font.SysFont("arial", 20)
+guess_font = pygame.font.SysFont("monospace", 24)
+lost_font = pygame.font.SysFont('arial', 45)
+
+# Global Variables
+word = ''
+buttons = []
+guessed = []
+hangmanPics = [pygame.image.load('hangman0.png'), pygame.image.load('hangman1.png'),
+               pygame.image.load('hangman2.png'), pygame.image.load('hangman3.png'),
+               pygame.image.load('hangman4.png'), pygame.image.load('hangman5.png'),
+               pygame.image.load('hangman6.png')]
+
+limbs = 0
+
+# OpenAI API key
+openai.api_key = 'your_api_key'
+
+def redraw_game_window():
+    global guessed, hangmanPics, limbs
+    win.fill(LIGHT_BLUE)
+    # Drawing buttons
+    for button in buttons:
+        color = DARK_BLUE if button[4] else GREEN
+        pygame.draw.circle(win, color, (button[1], button[2]), button[3])
+        label = btn_font.render(chr(button[5]), 1, BLACK)
+        win.blit(label, (button[1] - (label.get_width() / 2), button[2] - (label.get_height() / 2)))
+
+    # Drawing guessed word
+    spaced = spacedOut(word, guessed)
+    label1 = guess_font.render(spaced, 1, BLACK)
+    rect = label1.get_rect()
+    length = rect[2]
+    win.blit(label1, (winWidth / 2 - length / 2, 400))
+
+    # Drawing hangman image
+    pic = hangmanPics[limbs]
+    win.blit(pic, (winWidth / 2 - pic.get_width() / 2 + 20, 150))
+    pygame.display.update()
+
+def get_random_word():
+    try:
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt="Generate a random word for Hangman.",
+            max_tokens=1
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        print("Error fetching random word:", e)
+        return None
+
+def random_word():
+    fetched_word = get_random_word()
+    if fetched_word:
+        return fetched_word
+    else:
+        with open('words.txt') as file:
+            words = file.readlines()
+        return random.choice(words).strip()
+
+def hang(guess):
+    return guess.lower() not in word.lower()
+
+def spacedOut(word, guessed=[]):
+    spacedWord = ''
+    guessedLetters = guessed
+    for x in range(len(word)):
+        if word[x] != ' ':
+            spacedWord += '_ '
+            for i in range(len(guessedLetters)):
+                if word[x].upper() == guessedLetters[i]:
+                    spacedWord = spacedWord[:-2]
+                    spacedWord += word[x].upper() + ' '
+        elif word[x] == ' ':
+            spacedWord += ' '
+    return spacedWord
+
+def buttonHit(x, y):
+    for button in buttons:
+        if x < button[1] + 20 and x > button[1] - 20:
+            if y < button[2] + 20 and y > button[2] - 20:
+                return button[5]
+    return None
+
+def end(winner=False):
+    global limbs
+    lostTxt = 'You Lost, press any key to play again...'
+    winTxt = 'WINNER!, press any key to play again...'
+    redraw_game_window()
+    pygame.time.delay(1000)
+    win.fill(LIGHT_BLUE)
+
+    if winner:
+        label = lost_font.render(winTxt, 1, BLACK)
+    else:
+        label = lost_font.render(lostTxt, 1, BLACK)
+
+    wordTxt = lost_font.render(word.upper(), 1, BLACK)
+    wordWas = lost_font.render('The phrase was: ', 1, BLACK)
+
+    win.blit(wordTxt, (winWidth / 2 - wordTxt.get_width() / 2, 295))
+    win.blit(wordWas, (winWidth / 2 - wordWas.get_width() / 2, 245))
+    win.blit(label, (winWidth / 2 - label.get_width() / 2, 140))
+    pygame.display.update()
+    again = True
+    while again:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+            if event.type == pygame.KEYDOWN:
+                again = False
+    reset()
+
+def reset():
+    global limbs, guessed, buttons, word
+    for button in buttons:
+        button[4] = True
+    limbs = 0
+    guessed = []
+    word = random_word()
+
+# Setup buttons
+increase = round(winWidth / 13)
+for i in range(26):
+    if i < 13:
+        y = 40
+        x = 25 + (increase * i)
+    else:
+        x = 25 + (increase * (i - 13))
+        y = 85
+    buttons.append([LIGHT_BLUE, x, y, 20, True, 65 + i])
+
+word = random_word()
+inPlay = True
+
+while inPlay:
+    redraw_game_window()
+    pygame.time.delay(10)
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            inPlay = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                inPlay = False
+            elif event.key == pygame.K_h:  # Check for 'h' key press for hint
+                math_problem = "What is the result of 2 + 2 * 2?"
+                user_answer = input(math_problem)
+                if user_answer == "6":  # If the answer is correct, provide hint
+                    hint_sentence = "Hint: It's something related to nature."
+                    print(hint_sentence)
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            clickPos = pygame.mouse.get_pos()
+            letter = buttonHit(clickPos[0], clickPos[1])
+            if letter is not None:
+                guessed.append(chr(letter))
+                buttons[letter - 65][4] = False
+                if hang(chr(letter)):
+                    if limbs != 5:
+                        limbs += 1
+                    else:
+                        end()
+                else:
+                    print(spacedOut(word, guessed))
+                    if spacedOut(word, guessed).count('_') == 0:
+                        end(True)
+
+pygame.quit()
